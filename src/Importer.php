@@ -38,6 +38,11 @@ class Importer {
      */
     private $dateColumns;
 
+    /**
+     * @var boolean useHierarchy
+     *   Whether or not to populate a hierarchy table.
+     */
+    private $hierarchy;
 
     /**
      * Get the configuration object.
@@ -102,6 +107,20 @@ class Importer {
             if ('datetime' == $column['Type']) {
                 $this->dateColumns[] = $column['Field'];
             }
+        }
+
+        // Make sure the hierarchy table exists if needed.
+        $hierarchy_delimiters = $this->settings('hierarchy delimiters');
+        $hierarchy_table = $this->settings('database table for hierarchy');
+        $this->hierarchy = FALSE;
+        if (!empty($hierarchy_delimiters) && !empty($hierarchy_table)) {
+            $statement = $this->getDb()->query('DESCRIBE ' . $hierarchy_table);
+            $result = $statement->fetchAll(\PDO::FETCH_ASSOC);
+            $field_names = array_map(function($v) { return $v['Field']; }, $result);
+            if (!in_array('child', $field_names) || !in_array('parent', $field_names)) {
+                die(sprintf('The hierarchy table %s does not have "parent" and "child" columns', $hierarchy_table));
+            }
+            $this->hierarchy = TRUE;
         }
 
         if (!is_file($sourceFile)) {
@@ -180,7 +199,7 @@ class Importer {
     public function run() {
 
         if (!$this->settings('additive imports')) {
-          $this->delete();
+            $this->delete();
         }
         $this->insert();
     }
@@ -223,6 +242,9 @@ class Importer {
                     ->execute();
             }
             print sprintf('Imported %s rows.', $numInserted) . PHP_EOL;
+            if ($this->hierarchy) {
+                $this->updateHierarchy($rows);
+            }
         } catch (Exception $e) {
             $pathInfo = pathinfo($inputFileName, PATHINFO_BASENAME);
             throw new \Exception(sprintf('Error loading file %s: %s', $pathInfo, $e->getMessage()));
@@ -239,6 +261,52 @@ class Importer {
             ->delete($table)
             ->execute();
         print 'Deleted all rows.' . PHP_EOL;
+    }
+
+    /**
+     * Update the hierarchy table.
+     *
+     * @param array $rows
+     *   The rows that were returned from dataToArray.
+     */
+    private function updateHierarchy($rows) {
+        $parents_by_children = array();
+        foreach ($this->settings('hierarchy delimiters') as $column => $delimiter) {
+            foreach ($rows as $row) {
+                $lineage = explode($delimiter, $row[$column]);
+                $parent = '';
+                foreach ($lineage as $child) {
+                    if ($parent != '') {
+                        if (!empty($parents_by_children[$child]) && $parents_by_children[$child] != $parent) {
+                            print('Warning: The value "' . $child . '" appears related to multiple parents in the hierarchy, which is not allowed. We will use "' . $parents_by_children[$child] . '" as its parent.' . PHP_EOL);
+                        }
+                        else {
+                            $parents_by_children[$child] = $parent;
+                        }
+                    }
+                    $parent = $child;
+                }
+            }
+        }
+
+        $table = $this->settings('database table for hierarchy');
+        $this->getDb()->createQueryBuilder()
+            ->delete($table)
+            ->execute();
+
+        $numInserted = 0;
+        foreach ($parents_by_children as $child => $parent) {
+            $anonymousParameters = array();
+            $insert = $this->getDb()->createQueryBuilder()
+                ->insert($table);
+            $insert->setValue('`parent`', '?');
+            $insert->setValue('`child`', '?');
+            $anonymousParameters = array($parent, $child);
+            $numInserted += $insert
+                ->setParameters($anonymousParameters)
+                ->execute();
+        }
+        print sprintf('Found %s hierarchies.', $numInserted) . PHP_EOL;
     }
 
     /**

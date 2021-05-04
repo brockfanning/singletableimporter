@@ -53,6 +53,9 @@ database user: myUser
 database password: myPassword
 database host: localhost
 database table: myTable
+# If you would like to import hierarchy, a separate database table is needed.
+# This is required if you are using "hierarchy delimiters".
+database table for hierarchy: myHierarchyTable
 
 # If there are any special characters or phrases that need to be altered when
 # importing the data from the CSV file, indicate those here. For example, to
@@ -98,6 +101,13 @@ csv delimiter: ','
 
 # Set the enclosure for CSV imports Defaults to a double-quote.
 csv enclosure: '"'
+
+# Indicate that you would like to parse hierarchies in one or more
+# columns by assigning a hierarchy delimiter. For example, if the
+# delimiter is "///" then the value "Fruit///Apple" would be parsed as
+# "Apple" which is in a hierarchical structure beneath "Fruit".
+hierarchy delimiters:
+    myDatabaseColumn1: "///"
 
 # Allow for imports that will be "additive". If set to FALSE then each
 # import will start by deleting all rows.
