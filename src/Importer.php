@@ -39,7 +39,7 @@ class Importer {
     private $dateColumns;
 
     /**
-     * @var boolean useHierarchy
+     * @var boolean hierarchy
      *   Whether or not to populate a hierarchy table.
      */
     private $hierarchy;
